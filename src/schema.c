@@ -309,6 +309,50 @@ static void keys(void)
 
 /* Write the database .h header file -- schema enums and struct definitions */
 
+static void defout(const char *fname)
+{
+	int f, el, fel;
+	char name [NAMLEN+1];
+	char fn[64];
+
+	strcpy(fn, fname);
+	strcat(fn, ".h");
+	fp = fopen(fn, "w");
+
+	fprintf(fp,"/* -------- %s --------*/\n", fn);
+	fprintf(fp, "\n#define APPLICATION_H\n");
+
+	/* ---- data element enums -----*/
+	fprintf(fp, "\ntypedef enum elements {");
+	for (el = 0; el < dectr; el++)
+		fprintf(fp,"\n\t%s%s,", dc[el].dename,el ? "" : "=1");
+	fprintf(fp, "\n\tTermElement = 32367");
+	fprintf(fp, "\n} ELEMENT;\n");
+	/* ---- write the file enum statements ----*/
+	fprintf(fp, "\ntypedef enum files {");
+	for (f = 0; f < fctr; f++)
+		fprintf(fp, "\n\t%s,", filenames [f]);
+	fprintf(fp, "\n\tTermfile = 32367");
+	fprintf(fp, "\n{ DBFILE;\n");
+	/* write the record structures */
+	for (f = 0; f < fctr; f++)	{
+		lcase(name, filenames[f]);
+		fprintf(fp, "\nstruct %s {", name);
+		el = 0;
+		while ((fel = fileele[f] [el++]) != 0)	{
+			lcase(name, dc[fel-1].dename);
+			fprintf(fp, "\n\tchar %s [%d];",
+					name, dc[fel-1].delen + 1);
+		}
+		fprintf(fp, "\n};\n");
+	}
+	fprintf(fp, "\n#include \"cdata.h\"\n");
+	fclose(fp);
+}
+
+
+		}
+
 
 
 
