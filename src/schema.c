@@ -1,6 +1,5 @@
 /*
  * schema.c
- /*
   *
   */
 
@@ -107,7 +106,7 @@ static void numb_val(void);
 static void expect_comma(char **);
 
 #define iswhite(c) ((c)==' '||(c)=='\t')
-#define remark ';';
+#define REMARK ';'
 
 static FILE *fp;
 
@@ -137,7 +136,7 @@ void main (int argc, char *argv[])
 		}
 		get_line();
 		while (strncmp(ln, "#end schema", 11)){
-			if (strncmp(ln, "#dictionar", 11) == 0)
+			if (strncmp(ln, "#dictionary", 11) == 0)
 				de_dict();
 			else if (strncmp(ln, "#file ", 6) == 0)
 				files();
@@ -163,7 +162,7 @@ static void de_dict(void)
 	int el, masklen, buildmask;
 	while (TRUE)	{
 		get_line();
-		if (strnmp(ln, "#end dictionary", 15) == 0)
+		if (strncmp(ln, "#end dictionary", 15) == 0)
 			break;
 		if (dectr == MXELE)	{
 			error(ER_TOOMANY_ELEMENTS);
@@ -189,10 +188,10 @@ static void de_dict(void)
 		continue;
 		}
 		dc[dectr].detype = *cp++;
-		expect_copy(&cp);
+		expect_comma(&cp);
 		cp = get_word(cp);
 		numb_val();
-		dc[dectr].delen = atio(word);
+		dc[dectr].delen = atoi(word);
 		skip_white(&cp);
 		if (*cp++ == ',')	{
 			buildmask = FALSE;
@@ -276,7 +275,7 @@ static void keys(void)
 	for (f = 0; f < fctr; f++)
 		if (strcmp(word, filenames[f]) == 0)
 			break;
-	if (f = fctr) {
+	if (f == fctr) {
 		error(ER_UNKNOWN_FILENAME);
 		return;
 	}
@@ -333,7 +332,7 @@ static void defout(const char *fname)
 	for (f = 0; f < fctr; f++)
 		fprintf(fp, "\n\t%s,", filenames [f]);
 	fprintf(fp, "\n\tTermfile = 32367");
-	fprintf(fp, "\n{ DBFILE;\n");
+	fprintf(fp, "\n} DBFILE;\n");
 	/* write the record structures */
 	for (f = 0; f < fctr; f++)	{
 		lcase(name, filenames[f]);
@@ -350,16 +349,215 @@ static void defout(const char *fname)
 	fclose(fp);
 }
 
+/* write the database schema source code */
+static void schout(const char *fname)
+{
+	int f, el, x, x1, cat, fel;
+	char name [NAMLEN+1];
+	char fn[64];
 
+	strcpy(fn, fname);
+	strcat(fn, ".c");
+	fp = fopen(fn, "w");
+
+	fprintf(fp,"/* --------------- %s ------------- */\n",fn);
+	fprintf(fp, "\n#include \"%s.h\"\n", fname);
+
+	/* ------- data element ascii names ------- */
+	fprintf(fp, "\nconst char *denames [] = {");
+	for (el = 0; el < dectr; el ++)
+		fprintf(fp, "\n\t\"%s\",", dc[el].dename);
+	fprintf(fp, "\n\tNULL\n};\n");
+	/* --- data element types */
+	fprintf(fp, "\nconst char eltype [] = \"");
+	for (el = 0; el < dectr; el++)
+		putc(dc[el].detype, fp);
+	fprintf(fp, "\";\n");
+	/* data element display masks */
+	fprintf(fp, "\nconst char *elmask [] = {");
+	for (el=0;el<dectr;el++)
+		fprintf(fp, (el < dectr-1 ?
+				"\n\t%s," :
+				"\n\t%s"),dc[el].demask);
+	fprintf(fp, "\n};\n");
+	free(dc[el].demask);
+	/* ---- write the ascii file name strings -------*/
+	fprintf(fp, "\nconst char *dbfiles [] = {");
+	for (f=0;f < fctr; f++)
+		fprintf(fp, "\n\t\"%s\",", filenames [f]);
+	fprintf(fp, "\n\tNULL\n};\n");
+
+	/* data element lengths */
+	fprintf(fp, "\n\nconst int ellen [] = {");
+	for (el=0; el< dectr; el++)	{
+		if ((el % 25) == 0)
+			fprintf(fp, "\n\t");
+		fprintf(fp, (el < dectr-1 ? "%d," : "%d"),dc[el].delen);
+	}
+	fprintf(fp, "\n};\n");
+	/* write the file contents arrays */
+	for (f = 0; f < fctr; f++)	{
+		lcase(name, filenames [f]);
+		fprintf(fp, "\n\nconst ELEMENT f_%s [] = {", name);
+
+		el=0;
+		while ((fel = fileele[f] [el++]) != 0)
+			fprintf(fp, "\n\t%s,", dc[fel-1].dename);
+		fprintf(fp, "\n\t0\n};");
+	}
+	/* --- write the file list pointer array ---- */
+	fprintf(fp, "\n\nconst ELEMENT *file_ele [] = {");
+	for (f = 0; f< fctr; f++) 	{
+		lcase(name, filenames [f]);
+		fprintf(fp, "\n\tf_%s,", name);
+	}
+	fprintf(fp, "\n\t0\n};\n");
+	/* write the index arrays */
+	for (f = 0; f < fctr; f++)		{
+		lcase(name, filenames [f]);
+		for (x = 0; x < MXINDEX; x++)	{
+			if (*ndxele [f] [x] == 0)
+				break;
+			fprintf(fp,
+					"\nconst ELEMENT x%d_%s [] {",
+					x + 1, name);
+			for (cat = 0; cat < MXCAT; cat++)
+				if (ndxele [f] [x] [cat])
+					fprintf(fp, "\n\t%s,",
+							dc[ndxele [f] [x] [cat] - 1].dename);
+			fprintf(fp, "\n\t0\n};\n");
 		}
+		fprintf(fp, "\nconst ELEMENT *x_%s [] = {", name);
 
+		for (x1 = 0; x1 < x; x1++)
+			fprintf(fp, "\n\tx%d_%s,", x1 + 1, name);
+		fprintf(fp, "\n\tNULL\n};\n");
+	}
+	fprintf(fp, "\nconst ELEMENT **index_ele [] = {");
+	for (f = 0; f < fctr; f++)	{
+		lcase(name, filenames [f]);
+		fprintf(fp, "\n\tx_%s,", name);
+	}
+	fprintf(fp, "\n\n#ifdef NULL_IS_DEFINED");
+	fprintf(fp, "\n\t#undef NULL");
+	fprintf(fp, "\n\t#undef NULL_IS_DEFINED");
+	fprintf(fp, "\n#endif\n\n");
 
+	fclose(fp);
+}
+
+/* ---- convert a name to lower case ----- */
+static void lcase(char *s1, const char *s2)
+{
+	while (*s2)	{
+		*s1 = tolower(*s2);
+		s1++;
+		s2++;
+	}
+	*s1 = '\0';
+}
+
+/* --- get alineof data from the schema input stream ---- */
+static void get_line(void)
+{
+	char *cp;
+	*ln = '\0';
+	while (*ln =='\0'||*ln==REMARK||*ln=='\n') 	{
+		cp = fgets(ln,120,fp);
+		if (cp == NULL) {
+			error(ER_EOF);
+			exit(1);
+		}
+		lnctr++;
+	}
+}
+
+/* ---- skip over white space */
+static void skip_white(char **s)
+{
+	while(iswhite(**s))
+		(*s)++;
+}
+
+/* --- get a word from a line of input **/
+static char *get_word(char *cp)
+{
+	int wl = 0, fst = 0;
+	skip_white(&cp);
+	while (*cp && *cp != '\n' && *cp != ',' && iswhite(*cp) == 0)	{
+		if(wl == NAMLEN && fst == 0)	{
+		error(ER_NAME);
+		fst++;
 
 
 
 	}
+	else
+		word [wl++] = *cp++;
+	}
+	word [wl] = '\0';
+	return cp;
+}
 
-};
+/* validate a name -------------*/
+static void name_val(void)
+{
+	char *s = word;
+	if (isalpha(*s))	{
+		while (isalpha(*s) || isdigit(*s) || *s == '_')	{
+			*s = toupper(*s);
+			s++;
+		}
+		if (*s == '\0')
+			return;
+	}
+	error(ER_NAME);
+}
+
+/* ----- validate a number ----- */
+static void numb_val(void)
+{
+	char *s = word;
+	do {
+		if (isdigit(*s++) == 0)	{
+			error(ER_LENGTH);
+			break;
+		}
+	} while (*s);
+}
+
+/* --- expect comma next ---- */
+static void expect_comma(char **cp)
+{
+	skip_white(cp);
+	if (*(*cp)++ != ',')
+		error(ER_COMMA);
+}
+
+/* errors */
+static void error(const enum error_codes n)
+{
+	static int erct = 0;
+	static int erlin = 0;
+	int err;
+
+	for (err = 0; ers[err].ec != ER_TERMINAL; err++)
+		if (n == ers[err].ec)
+			break;
+	if (erlin != lnctr) {
+		erlin = lnctr;
+		fprintf(stderr, "\nLine %d: %s", lnctr, ln);
+	}
+	fprintf(stderr, "Error %d: %s\n", n, ers[err].errormsg);
+	if (erct++ == 5)	{
+		erct = 0;
+		fprintf(stderr, "\nContinue (y/n) ...");
+		if (tolower(getc(stdin)) != 'y')
+			exit(1);
+	}
+
+
+}
 
 
 
